@@ -1,0 +1,131 @@
+# v0 Application Prompt
+
+Create a full-stack **Medical Document Management Portal** with a greenish medical theme.
+
+## Tech Stack
+- **Frontend**: React with TypeScript
+- **Backend**: Express.js with TypeScript
+- **Database**: Neon Postgres with Drizzle ORM
+- **Validation**: Zod
+- **Styling**: Tailwind CSS + shadcn/ui
+- **Theme**: Medical greenish color palette (#10b981, #059669, #047857 as primary colors)
+
+## Database Setup
+**IMPORTANT**: Ask me for the Neon Postgres connection URL before generating the database configuration.
+
+Create Drizzle schema for `documents` table:
+```typescript
+{
+  id: serial primary key,
+  filename: varchar(255) not null,
+  filepath: varchar(500) not null,
+  filesize: integer not null,
+  created_at: timestamp default now()
+}
+```
+
+## Backend Requirements (Express.js)
+
+### API Endpoints:
+1. **POST /api/documents/upload**
+   - Accept PDF file upload (multipart/form-data)
+   - Validate file type (PDF only) using Zod
+   - Store file in `uploads/` directory
+   - Save metadata to database
+   - Return: `{ id, filename, filesize, created_at }`
+
+2. **GET /api/documents**
+   - Fetch all documents from database
+   - Return: Array of document metadata
+
+3. **GET /api/documents/:id**
+   - Stream PDF file for download
+   - Set proper headers: `Content-Type: application/pdf`
+
+4. **DELETE /api/documents/:id**
+   - Delete file from `uploads/` directory
+   - Delete metadata from database
+   - Return: `{ success: true, message }`
+
+### Validation Schema (Zod):
+- File type: PDF only
+- File size: Max 10MB
+- Filename: Required string
+
+### Additional Backend:
+- Use `multer` for file upload handling
+- Store files in `uploads/` folder
+- Proper error handling with status codes
+- CORS enabled for local development
+
+## Frontend Requirements (React)
+
+### Components Needed:
+1. **FileUploadForm**
+   - File input accepting PDF only
+   - Upload button with loading state
+   - Validation messages
+   - Success/error toast notifications
+
+2. **DocumentList**
+   - Display all uploaded documents in cards/table
+   - Show: filename, file size, upload date
+   - Download button (icon) per document
+   - Delete button (icon) per document
+   - Empty state when no documents
+
+3. **Layout**
+   - Medical-themed header with greenish gradient
+   - Main content area
+   - Responsive design
+
+### Styling Requirements:
+- Use shadcn/ui components: Button, Card, Table, Toast, Dialog
+- Greenish medical theme (#10b981, #059669, #047857)
+- Icons from lucide-react (Upload, Download, Trash2, FileText)
+- Smooth transitions and hover effects
+- Loading states for all actions
+
+### Features:
+- Display file size in human-readable format (KB/MB)
+- Format dates nicely
+- Confirmation dialog before deletion
+- Toast notifications for success/error
+- Responsive grid/table layout
+
+## File Structure:
+```
+project/
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── lib/
+│   │   └── App.tsx
+│   └── package.json
+├── backend/
+│   ├── src/
+│   │   ├── routes/
+│   │   ├── db/
+│   │   └── index.ts
+│   ├── uploads/
+│   └── package.json
+```
+
+## Assumptions:
+- Single user (no authentication)
+- Max file size: 10MB
+- PDF files only
+- Local development environment
+- Files stored in filesystem (`uploads/`)
+
+## Environment Variables:
+```
+Backend (.env):
+DATABASE_URL=<ASK_USER_FOR_NEON_URL>
+PORT=5000
+
+Frontend (.env):
+VITE_API_URL=http://localhost:5000
+```
+
+Generate complete working code for both frontend and backend with proper TypeScript types, error handling, and the specified medical greenish theme.
