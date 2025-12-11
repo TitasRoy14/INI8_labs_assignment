@@ -11,7 +11,7 @@ A full-stack web application for uploading, managing, and downloading PDF docume
 
 ## Project Structure
 
-\`\`\`
+```
 ├── design.md           # System design documentation
 ├── README.md           # This file
 ├── frontend/           # React frontend application
@@ -25,7 +25,7 @@ A full-stack web application for uploading, managing, and downloading PDF docume
 │   └── index.ts        # Server entry point
 └── shared/             # Shared types and schemas
     └── schema.ts       # Database schema & types
-\`\`\`
+```
 
 ## Features
 
@@ -40,51 +40,51 @@ A full-stack web application for uploading, managing, and downloading PDF docume
 
 - Node.js 18+
 - PostgreSQL database
-- pnpm (recommended) or npm
+- npm (recommended)
 
 ## Environment Variables
 
 Create a `.env` file in the root directory:
 
-\`\`\`env
+```env
 DATABASE_URL=postgresql://user:password@localhost:5432/documents
 PORT=5000
-\`\`\`
+```
 
 ## Installation
 
-\`\`\`bash
+```bash
 # Install dependencies
-pnpm install
+npm install
 
 # Run database migrations
-pnpm db:push
+npm run db:push
 
 # Start development server
-pnpm dev
-\`\`\`
+npm run dev
+```
 
 ## API Endpoints
 
-| Method | Endpoint                | Description          |
-|--------|-------------------------|----------------------|
-| GET    | /api/documents          | List all documents   |
-| POST   | /api/documents/upload   | Upload a document    |
-| GET    | /api/documents/:id      | Download a document  |
-| DELETE | /api/documents/:id      | Delete a document    |
+| Method | Endpoint              | Description         |
+| ------ | --------------------- | ------------------- |
+| GET    | /api/documents        | List all documents  |
+| POST   | /api/documents/upload | Upload a document   |
+| GET    | /api/documents/:id    | Download a document |
+| DELETE | /api/documents/:id    | Delete a document   |
 
 ## Development
 
-\`\`\`bash
+```bash
 # Start development server with hot reload
-pnpm dev
+npm run dev
 
 # Build for production
-pnpm build
+npm run build
 
 # Start production server
-pnpm start
-\`\`\`
+npm start
+```
 
 ## License
 
