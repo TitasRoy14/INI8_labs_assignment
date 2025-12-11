@@ -6,12 +6,17 @@ import fs from 'fs';
 import { z } from 'zod';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
-import * as schema from '@shared/schema';
-import { documents } from '@shared/schema';
+import * as schema from '../shared/schema.js';
+import { documents } from '../shared/schema.js';
 import { eq, desc } from 'drizzle-orm';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
-import viteConfig from '../vite.config';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import cors from 'cors';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 dotenv.config();
 
@@ -26,6 +31,7 @@ if (!process.env.DATABASE_URL) {
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema });
 
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -85,11 +91,9 @@ app.post('/api/documents/upload', upload.single('file'), async (req, res) => {
     res.status(201).json(doc);
   } catch (error) {
     if (req.file) fs.unlinkSync(path.join(uploadsDir, req.file.filename));
-    res
-      .status(400)
-      .json({
-        message: error instanceof Error ? error.message : 'Upload failed',
-      });
+    res.status(400).json({
+      message: error instanceof Error ? error.message : 'Upload failed',
+    });
   }
 });
 
@@ -136,15 +140,14 @@ app.delete('/api/documents/:id', async (req, res) => {
 
 (async () => {
   if (process.env.NODE_ENV === 'production') {
-    const distPath = path.resolve(__dirname, 'public');
+    const distPath = path.resolve(__dirname, '..', 'dist', 'public');
     app.use(express.static(distPath));
     app.use('*', (_req, res) =>
       res.sendFile(path.resolve(distPath, 'index.html'))
     );
   } else {
     const vite = await createViteServer({
-      ...viteConfig,
-      configFile: false,
+      configFile: path.resolve(__dirname, '..', 'vite.config.ts'),
       server: {
         middlewareMode: true,
         hmr: { server: httpServer },
@@ -156,7 +159,7 @@ app.delete('/api/documents/:id', async (req, res) => {
     app.use('*', async (req, res, next) => {
       try {
         const template = await fs.promises.readFile(
-          path.resolve(import.meta.dirname, '..', 'client', 'index.html'),
+          path.resolve(__dirname, '..', 'frontend', 'index.html'),
           'utf-8'
         );
         const page = await vite.transformIndexHtml(req.originalUrl, template);
@@ -169,6 +172,6 @@ app.delete('/api/documents/:id', async (req, res) => {
 
   const port = parseInt(process.env.PORT || '5000');
   httpServer.listen(port, '0.0.0.0', () =>
-    console.log(`Server on port ${port}`)
+    console.log(`Server running on http://localhost:${port}`)
   );
 })();
