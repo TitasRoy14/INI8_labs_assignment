@@ -1,98 +1,174 @@
-import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
-import { serveStatic } from "./static";
-import { createServer } from "http";
+import express from 'express';
+import { createServer } from 'http';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { z } from 'zod';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import pg from 'pg';
+import * as schema from '@shared/schema';
+import { documents } from '@shared/schema';
+import { eq, desc } from 'drizzle-orm';
+import dotenv from 'dotenv';
+import { createServer as createViteServer } from 'vite';
+import viteConfig from '../vite.config';
+
+dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+const { Pool } = pg;
 
-declare module "http" {
-  interface IncomingMessage {
-    rawBody: unknown;
-  }
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL must be set');
 }
 
-app.use(
-  express.json({
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-  }),
-);
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = drizzle(pool, { schema });
 
+app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
+const uploadsDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    file.mimetype === 'application/pdf'
+      ? cb(null, true)
+      : cb(new Error('Only PDF files allowed'));
+  },
+});
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
+const uploadSchema = z.object({
+  filename: z.string().min(1),
+  filepath: z.string().min(1),
+  filesize: z
+    .number()
+    .positive()
+    .max(10 * 1024 * 1024),
+});
 
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
+app.get('/api/documents', async (_req, res) => {
+  try {
+    const docs = await db
+      .select()
+      .from(documents)
+      .orderBy(desc(documents.createdAt));
+    res.json(docs);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch documents' });
+  }
+});
 
-      log(logLine);
-    }
-  });
+app.post('/api/documents/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
 
-  next();
+    const data = uploadSchema.parse({
+      filename: req.file.originalname,
+      filepath: req.file.filename,
+      filesize: req.file.size,
+    });
+
+    const [doc] = await db.insert(documents).values(data).returning();
+    res.status(201).json(doc);
+  } catch (error) {
+    if (req.file) fs.unlinkSync(path.join(uploadsDir, req.file.filename));
+    res
+      .status(400)
+      .json({
+        message: error instanceof Error ? error.message : 'Upload failed',
+      });
+  }
+});
+
+app.get('/api/documents/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+
+    const [doc] = await db.select().from(documents).where(eq(documents.id, id));
+    if (!doc) return res.status(404).json({ message: 'Document not found' });
+
+    const filePath = path.join(uploadsDir, doc.filepath);
+    if (!fs.existsSync(filePath))
+      return res.status(404).json({ message: 'File not found' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(doc.filename)}"`
+    );
+    fs.createReadStream(filePath).pipe(res);
+  } catch (error) {
+    res.status(500).json({ message: 'Download failed' });
+  }
+});
+
+app.delete('/api/documents/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+
+    const [doc] = await db.select().from(documents).where(eq(documents.id, id));
+    if (!doc) return res.status(404).json({ message: 'Document not found' });
+
+    const filePath = path.join(uploadsDir, doc.filepath);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+    await db.delete(documents).where(eq(documents.id, id));
+    res.json({ success: true, message: 'Document deleted' });
+  } catch (error) {
+    res.status(500).json({ message: 'Delete failed' });
+  }
 });
 
 (async () => {
-  await registerRoutes(httpServer, app);
-
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
-  });
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
+  if (process.env.NODE_ENV === 'production') {
+    const distPath = path.resolve(__dirname, 'public');
+    app.use(express.static(distPath));
+    app.use('*', (_req, res) =>
+      res.sendFile(path.resolve(distPath, 'index.html'))
+    );
   } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
+    const vite = await createViteServer({
+      ...viteConfig,
+      configFile: false,
+      server: {
+        middlewareMode: true,
+        hmr: { server: httpServer },
+      },
+      appType: 'custom',
+    });
+
+    app.use(vite.middlewares);
+    app.use('*', async (req, res, next) => {
+      try {
+        const template = await fs.promises.readFile(
+          path.resolve(import.meta.dirname, '..', 'client', 'index.html'),
+          'utf-8'
+        );
+        const page = await vite.transformIndexHtml(req.originalUrl, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(page);
+      } catch (e) {
+        next(e);
+      }
+    });
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
+  const port = parseInt(process.env.PORT || '5000');
+  httpServer.listen(port, '0.0.0.0', () =>
+    console.log(`Server on port ${port}`)
   );
 })();
